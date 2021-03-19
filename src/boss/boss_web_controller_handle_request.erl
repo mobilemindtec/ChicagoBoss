@@ -142,7 +142,7 @@ build_dynamic_response(App, Bridge, Url, RouterAdapter) ->
                                 ControllerList,
                                 RouterAdapter
                                 ),
-    {Time, {StatusCode, Headers, Payload}} = TR,
+    {Time, {StatusCode, Headers, Payload, Cookies}} = TR,
     ErrorFormat        = "~s ~s [~p] ~p ~pms",
     RequestMethod    = Bridge:request_method(),
     FullUrl        = Bridge:path(),
@@ -154,7 +154,12 @@ build_dynamic_response(App, Bridge, Url, RouterAdapter) ->
                       end,
                       Response1,
                       Headers),
-    handle_response(Response2, Payload, RequestMethod).
+    Response3        = lists:foldl(fun(Map, Acc) ->
+                          Acc:set_cookie(maps:get(name, Map), maps:get(value, Map), maps:get(options, Map))
+                      end,
+                      Response2,
+                      Cookies),    
+    handle_response(Response3, Payload, RequestMethod).
 
 set_timer(Request, Url, Mode, AppInfo, TranslatorPid, RouterPid,
           ControllerList, RouterAdapter) ->
@@ -329,11 +334,15 @@ process_error(Payload, #boss_app_info{ router_pid = RouterPid } = AppInfo, Reque
 process_result_and_add_session(AppInfo, RequestContext, Result) ->
     Req = proplists:get_value(request, RequestContext),
     {StatusCode, Headers, Payload} = process_result(AppInfo, Req, Result),
-    Headers1 = case proplists:get_value(session_id, RequestContext) of
-                   undefined -> Headers;
-                   SessionID -> add_session_to_headers(Req, Headers, SessionID)
-               end,
-    {StatusCode, Headers1, Payload}.
+    % Headers1 = case proplists:get_value(session_id, RequestContext) of
+    %                undefined -> Headers;
+    %                SessionID -> add_session_to_headers(Req, Headers, SessionID)
+    %            end,
+    Cookie = case proplists:get_value(session_id, RequestContext) of
+        undefined -> [];
+        SessionID -> create_session_key_cookie(Req, SessionID)
+    end,            
+    {StatusCode, Headers1, Payload, [Cookie]}.
 
 add_session_to_headers(Req, Headers, SessionID) ->
     SessionExpTime    = boss_session:get_session_exp_time(),
@@ -347,6 +356,22 @@ add_session_to_headers(Req, Headers, SessionID) ->
     SessionKey        = boss_session:get_session_key(),
     lists:merge(Headers, [mochiweb_cookies:cookie(SessionKey, SessionID, CookieOptions)]).
 
+
+create_session_key_cookie(Req, SessionID) ->
+    SessionExpTime   = boss_session:get_session_exp_time(),
+    CookieOptions    = [
+                        {domain, boss_env:get_env(session_domain, undefined)},
+                        {path, "/"},
+                        {max_age, SessionExpTime},
+                        {secure, boss_env:get_env(session_cookie_secure, false)},
+                        {http_only, boss_env:get_env(session_cookie_http_only, true)}
+                       ],
+    SessionKey        = boss_session:get_session_key(),
+    #{
+        name => SessionKey,
+        value => SessionID,
+        options => CookieOptions
+    }.
 
 %TODO: Refactor this
 process_result(AppInfo, Req, {Status, Payload}) ->
