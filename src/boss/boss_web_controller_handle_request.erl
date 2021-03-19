@@ -342,7 +342,7 @@ process_result_and_add_session(AppInfo, RequestContext, Result) ->
         undefined -> [];
         SessionID -> create_session_key_cookie(Req, SessionID)
     end,            
-    {StatusCode, Headers1, Payload, [Cookie]}.
+    {StatusCode, Headers, Payload, [Cookie]}.
 
 add_session_to_headers(Req, Headers, SessionID) ->
     SessionExpTime    = boss_session:get_session_exp_time(),
