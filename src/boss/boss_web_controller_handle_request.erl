@@ -153,9 +153,9 @@ build_dynamic_response(App, Bridge, Url, RouterAdapter) ->
                           Acc:set_header(K, V)
                       end,
                       Response1,
-                      Headers),
-    Response3        = lists:foldl(fun(Map, Acc) ->
-                          Acc:set_cookie(maps:get(name, Map), maps:get(value, Map), maps:get(options, Map))
+                      Headers),    
+    Response3        = lists:foldl(fun(#{name := Name, value := Value, options := Options}, Acc) ->
+                        Acc:set_cookie(Name, Value, Options)
                       end,
                       Response2,
                       Cookies),    
@@ -339,10 +339,14 @@ process_result_and_add_session(AppInfo, RequestContext, Result) ->
     %                SessionID -> add_session_to_headers(Req, Headers, SessionID)
     %            end,
     Cookie = case proplists:get_value(session_id, RequestContext) of
-        undefined -> [];
+        undefined -> undefined;
         SessionID -> create_session_key_cookie(Req, SessionID)
     end,            
-    {StatusCode, Headers, Payload, [Cookie]}.
+    Cookies = if 
+        Cookie == undefined -> [];
+        true -> [Cookie]
+    end,    
+    {StatusCode, Headers, Payload, Cookies}.
 
 add_session_to_headers(Req, Headers, SessionID) ->
     SessionExpTime    = boss_session:get_session_exp_time(),
