@@ -153,12 +153,17 @@ build_dynamic_response(App, Bridge, Url, RouterAdapter) ->
                           Acc:set_header(K, V)
                       end,
                       Response1,
-                      Headers),    
-    Response3        = lists:foldl(fun(#{name := Name, value := Value, options := Options}, Acc) ->
-                        Acc:set_cookie(Name, Value, Options)
+                      Headers),
+    Response3        = lists:foldl(fun(Map, Acc) ->
+                        case Map of 
+                            [] ->
+                                Acc;
+                            _ ->
+                                Acc:set_cookie(maps:get(name, Map), maps:get(value, Map), maps:get(options, Map))                                
+                        end
                       end,
                       Response2,
-                      Cookies),    
+                      Cookies),
     handle_response(Response3, Payload, RequestMethod).
 
 set_timer(Request, Url, Mode, AppInfo, TranslatorPid, RouterPid,
@@ -334,32 +339,32 @@ process_error(Payload, #boss_app_info{ router_pid = RouterPid } = AppInfo, Reque
 process_result_and_add_session(AppInfo, RequestContext, Result) ->
     Req = proplists:get_value(request, RequestContext),
     {StatusCode, Headers, Payload} = process_result(AppInfo, Req, Result),
-    % Headers1 = case proplists:get_value(session_id, RequestContext) of
-    %                undefined -> Headers;
-    %                SessionID -> add_session_to_headers(Req, Headers, SessionID)
-    %            end,
+    %Headers1 = case proplists:get_value(session_id, RequestContext) of
+    %               undefined -> Headers;
+    %               SessionID -> add_session_to_headers(Req, Headers, SessionID)
+    %           end,
     Cookie = case proplists:get_value(session_id, RequestContext) of
-        undefined -> undefined;
+        undefined -> [];
         SessionID -> create_session_key_cookie(Req, SessionID)
-    end,            
-    Cookies = if 
-        Cookie == undefined -> [];
-        true -> [Cookie]
-    end,    
-    {StatusCode, Headers, Payload, Cookies}.
+    end,        
+    % io:fwrite("Headers ~p = ~n", [Headers]),
+    {StatusCode, Headers, Payload, [Cookie]}.
 
 add_session_to_headers(Req, Headers, SessionID) ->
     SessionExpTime    = boss_session:get_session_exp_time(),
-    CookieOptions    = [
-                        {domain, boss_env:get_env(session_domain, undefined)},
-                        {path, "/"},
-                        {max_age, SessionExpTime},
-                        {secure, boss_env:get_env(session_cookie_secure, false)},
-                        {http_only, boss_env:get_env(session_cookie_http_only, true)}
-                       ],
     SessionKey        = boss_session:get_session_key(),
-    lists:merge(Headers, [mochiweb_cookies:cookie(SessionKey, SessionID, CookieOptions)]).
-
+    CookieOptions    = {cookie,
+                        SessionKey,
+                        SessionID,
+                        boss_env:get_env(session_domain, undefined),
+                        "/",                                                
+                        SessionExpTime,
+                        boss_env:get_env(session_cookie_secure, false),
+                        boss_env:get_env(session_cookie_http_only, true)
+                       },
+    % io:fwrite("CookieOptions ~p = ~n", [CookieOptions]),                       
+    Cookie = simple_bridge_util:create_cookie_header(CookieOptions),
+    lists:merge(Headers, [Cookie]).
 
 create_session_key_cookie(Req, SessionID) ->
     SessionExpTime   = boss_session:get_session_exp_time(),
